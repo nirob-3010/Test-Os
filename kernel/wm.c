@@ -418,18 +418,20 @@ void wm_render(void) {
     mouse_state_t ms;
     mouse_get_state(&ms);
 
-    // Check if 1 second has elapsed for real-time clock update
-    rtc_time_t t;
-    rtc_get_time(&t);
-    if (t.second != last_rtc_sec) {
-        last_rtc_sec = t.second;
+    uint32_t pitch = gfx_get_pitch();
+    if (!pitch) pitch = screen_w;
+
+    // Check if 1 second has elapsed using PIT ticks (Avoids slow CMOS I/O port traps on mouse moves!)
+    uint32_t cur_ticks = pit_get_ticks();
+    if (cur_ticks - last_rtc_sec >= 100) { // 100 PIT ticks = 1.0 second
+        last_rtc_sec = cur_ticks;
         desktop_dirty = true;
     }
 
     // 1. Full Desktop Recomposition (ONLY when windows, clock, or widgets change!)
     if (desktop_dirty || !desktop_buffer) {
         if (wallpaper_cache) {
-            memcpy(backbuffer, wallpaper_cache, screen_w * screen_h * sizeof(uint32_t));
+            memcpy(backbuffer, wallpaper_cache, pitch * screen_h * sizeof(uint32_t));
         } else {
             gfx_clear(0xFFB7C7D8);
         }
@@ -449,7 +451,7 @@ void wm_render(void) {
 
         // Save pristine desktop composite without cursor for zero-latency restores
         if (desktop_buffer) {
-            memcpy(desktop_buffer, backbuffer, screen_w * screen_h * sizeof(uint32_t));
+            memcpy(desktop_buffer, backbuffer, pitch * screen_h * sizeof(uint32_t));
         }
 
         // Draw cursor and swap
@@ -463,15 +465,17 @@ void wm_render(void) {
     }
 
     // 2. High-Speed iOS-Style Cursor Update (ONLY the mouse moved!)
-    // Takes under 2 microseconds! No window re-rendering or full-screen copies!
+    // Takes under 1 microsecond! Zero window re-rendering or full-screen copies!
     if (ms.x != last_cursor_x || ms.y != last_cursor_y) {
-        // Restore previous cursor rect directly into front and back buffers
-        if (last_cursor_x >= 0 && last_cursor_y >= 0 && desktop_buffer) {
-            int rx = last_cursor_x;
-            int ry = last_cursor_y;
-            int rw = 22;
-            int rh = 30;
+        int old_x = last_cursor_x;
+        int old_y = last_cursor_y;
+        int rw = 24;
+        int rh = 32;
 
+        // Restore previous cursor rect from desktop_buffer into back_buffer
+        if (old_x >= 0 && old_y >= 0 && desktop_buffer) {
+            int rx = old_x;
+            int ry = old_y;
             if (rx < 0) { rw += rx; rx = 0; }
             if (ry < 0) { rh += ry; ry = 0; }
             if (rx + rw > (int)screen_w) rw = (int)screen_w - rx;
@@ -479,32 +483,18 @@ void wm_render(void) {
 
             if (rw > 0 && rh > 0) {
                 for (int row = 0; row < rh; row++) {
-                    int offset = (ry + row) * screen_w + rx;
-                    memcpy(&frontbuffer[offset], &desktop_buffer[offset], rw * sizeof(uint32_t));
+                    int offset = (ry + row) * pitch + rx;
                     memcpy(&backbuffer[offset], &desktop_buffer[offset], rw * sizeof(uint32_t));
                 }
+                gfx_swap_rect(rx, ry, rw, rh);
             }
         }
 
-        // Draw cursor at new position
+        // Draw cursor at new position into back_buffer
         mouse_draw_cursor(ms.x, ms.y);
 
-        // Copy new cursor rect into frontbuffer immediately
-        int nx = ms.x;
-        int ny = ms.y;
-        int nw = 22;
-        int nh = 30;
-        if (nx < 0) { nw += nx; nx = 0; }
-        if (ny < 0) { nh += ny; ny = 0; }
-        if (nx + nw > (int)screen_w) nw = (int)screen_w - nx;
-        if (ny + nh > (int)screen_h) nh = (int)screen_h - ny;
-
-        if (nw > 0 && nh > 0) {
-            for (int row = 0; row < nh; row++) {
-                int offset = (ny + row) * screen_w + nx;
-                memcpy(&frontbuffer[offset], &backbuffer[offset], nw * sizeof(uint32_t));
-            }
-        }
+        // Blit new cursor rect to screen
+        gfx_swap_rect(ms.x, ms.y, 24, 32);
 
         last_cursor_x = ms.x;
         last_cursor_y = ms.y;

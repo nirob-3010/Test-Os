@@ -1,5 +1,5 @@
 /**
- * NSK OS v0.3 - PS/2 Mouse Driver (Phase 3)
+ * NSK OS v0.3 - PS/2 Mouse Driver Header (Phase 3)
  * Handles IRQ 12, 3-byte packets, tracking, and alpha-blended cursor rendering
  */
 #ifndef NSK_MOUSE_H
@@ -25,7 +25,7 @@ typedef struct {
 
 void mouse_init(uint32_t screen_width, uint32_t screen_height);
 void mouse_get_state(mouse_state_t* out_state);
+bool mouse_has_pending_event(void);
 void mouse_draw_cursor(int x, int y);
-void mouse_restore_background(int x, int y);
 
 #endif /* NSK_MOUSE_H */

@@ -265,10 +265,9 @@ void phase3_desktop_init(void) {
 
     while (1) {
         uint32_t cur_tick = pit_get_ticks();
-        mouse_state_t ms;
-        mouse_get_state(&ms);
+        bool has_mouse = mouse_has_pending_event();
 
-        if (cur_tick != last_tick || ms.moved || ms.clicked || ms.released) {
+        if (cur_tick != last_tick || has_mouse) {
             last_tick = cur_tick;
 
             // Process mouse events, window drag, buttons

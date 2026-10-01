@@ -1,124 +1,81 @@
 /**
- * NSK OS v0.3 - Windows 11 Bloom Silk Flower Wallpaper Engine
- * Exactly reproduces the uploaded HOME.PNG wallpaper:
- * Soft sky-slate ambient backdrop with 3D spiraling folded silk petals,
- * translucent lavender/lilac rims, ice-blue shading, and deep navy ambient creases.
+ * NSK OS v0.3 - Authentic Windows 11 Bloom Wallpaper Engine
+ * Scales the embedded real Bloom Silk Flower image (kernel/wallpaper_bloom.h)
+ * across any screen resolution using high-quality bilinear interpolation.
  */
 #include "wallpaper.h"
+#include "wallpaper_bloom.h"
 #include "gfx.h"
 
-// 256-entry fixed-point trigonometric sine table (-256 to +256)
-static const int16_t sin_table[256] = {
-      0,   6,  12,  18,  25,  31,  37,  43,  49,  56,  62,  68,  74,  80,  86,  92,
-     97, 103, 109, 115, 120, 126, 131, 136, 142, 147, 152, 157, 162, 167, 171, 176,
-    180, 185, 189, 193, 197, 201, 205, 208, 212, 215, 219, 222, 225, 228, 231, 233,
-    236, 238, 240, 242, 244, 246, 247, 249, 250, 251, 252, 253, 254, 254, 255, 255,
-    256, 255, 255, 254, 254, 253, 252, 251, 250, 249, 247, 246, 244, 242, 240, 238,
-    236, 233, 231, 228, 225, 222, 219, 215, 212, 208, 205, 201, 197, 193, 189, 185,
-    180, 176, 171, 167, 162, 157, 152, 147, 142, 136, 131, 126, 120, 115, 109, 103,
-     97,  92,  86,  80,  74,  68,  62,  56,  49,  43,  37,  31,  25,  18,  12,   6,
-      0,  -6, -12, -18, -25, -31, -37, -43, -49, -56, -62, -68, -74, -80, -86, -92,
-    -97,-103,-109,-115,-120,-126,-131,-136,-142,-147,-152,-157,-162,-167,-171,-176,
-   -180,-185,-189,-193,-197,-201,-205,-208,-212,-215,-219,-222,-225,-228,-231,-233,
-   -236,-238,-240,-242,-244,-246,-247,-249,-250,-251,-252,-253,-254,-254,-255,-255,
-   -256,-255,-255,-254,-254,-253,-252,-251,-250,-249,-247,-246,-244,-242,-240,-238,
-   -236,-233,-231,-228,-225,-222,-219,-215,-212,-208,-205,-201,-197,-193,-189,-185,
-   -180,-176,-171,-167,-162,-157,-152,-147,-142,-136,-131,-126,-120,-115,-109,-103,
-    -97, -92, -86, -80, -74, -68, -62, -56, -49, -43, -37, -31, -25, -18, -12,  -6
-};
+// Unpack RGB565 to 32-bit ARGB (0xFFRRGGBB)
+static inline uint32_t rgb565_to_argb(uint16_t c) {
+    uint32_t r = (c >> 11) & 0x1F;
+    uint32_t g = (c >> 5) & 0x3F;
+    uint32_t b = c & 0x1F;
 
-static inline int fast_sin(int a) { return sin_table[a & 0xFF]; }
-static inline int fast_cos(int a) { return sin_table[(a + 64) & 0xFF]; }
+    r = (r * 527 + 23) >> 6; // Fast 5-bit to 8-bit expansion
+    g = (g * 259 + 33) >> 6; // Fast 6-bit to 8-bit expansion
+    b = (b * 527 + 23) >> 6;
+
+    return 0xFF000000 | (r << 16) | (g << 8) | b;
+}
 
 void wallpaper_generate(uint32_t* buffer, int width, int height) {
     if (!buffer || width <= 0 || height <= 0) return;
 
-    // Center of the flower blossom (centered horizontally, lower-middle vertically)
-    int cx = width / 2;
-    int cy = (height * 68) / 100;
-    int max_radius = (height * 48) / 100;
+    // Fixed-point 16.16 step ratios
+    uint32_t x_ratio = ((BLOOM_W - 1) << 16) / width;
+    uint32_t y_ratio = ((BLOOM_H - 1) << 16) / height;
 
     for (int y = 0; y < height; y++) {
-        // Serene sky-slate ambient backdrop from HOME.PNG (#B7C7D8 -> #D4DFEC)
-        int bg_r = 183 + (y * 28 / height);
-        int bg_g = 199 + (y * 24 / height);
-        int bg_b = 216 + (y * 20 / height);
+        uint32_t src_y_fp = y * y_ratio;
+        int y0 = src_y_fp >> 16;
+        int y1 = (y0 + 1 < BLOOM_H) ? y0 + 1 : y0;
+        int y_diff = (src_y_fp >> 8) & 0xFF; // 8-bit fraction
+        int y_diff_inv = 256 - y_diff;
+
+        const uint16_t* row0 = &bloom_wallpaper_rgb565[y0 * BLOOM_W];
+        const uint16_t* row1 = &bloom_wallpaper_rgb565[y1 * BLOOM_W];
+        uint32_t* dst_row = &buffer[y * width];
 
         for (int x = 0; x < width; x++) {
-            int dx = x - cx;
-            int dy = y - cy;
+            uint32_t src_x_fp = x * x_ratio;
+            int x0 = src_x_fp >> 16;
+            int x1 = (x0 + 1 < BLOOM_W) ? x0 + 1 : x0;
+            int x_diff = (src_x_fp >> 8) & 0xFF; // 8-bit fraction
+            int x_diff_inv = 256 - x_diff;
 
-            // Scaled elliptical coordinates (Bloom is slightly wider than tall)
-            int ex = dx;
-            int ey = (dy * 11) / 10;
-            int dist_sq = (ex * ex + ey * ey);
+            // Sample 4 neighboring pixels
+            uint32_t c00 = rgb565_to_argb(row0[x0]);
+            uint32_t c10 = rgb565_to_argb(row0[x1]);
+            uint32_t c01 = rgb565_to_argb(row1[x0]);
+            uint32_t c11 = rgb565_to_argb(row1[x1]);
 
-            int dist = 0;
-            while (dist * dist < (dist_sq >> 4)) dist++;
-            dist <<= 2; // Approximate Euclidean distance in pixels
+            // Bilinear blend weights
+            int w00 = (x_diff_inv * y_diff_inv) >> 8;
+            int w10 = (x_diff * y_diff_inv) >> 8;
+            int w01 = (x_diff_inv * y_diff) >> 8;
+            int w11 = (x_diff * y_diff) >> 8;
 
-            if (dist > max_radius + 40 || y > height - 10) {
-                // Outside bloom area: smooth ambient background
-                buffer[y * width + x] = 0xFF000000 | ((uint32_t)bg_r << 16) | ((uint32_t)bg_g << 8) | (uint32_t)bg_b;
-                continue;
-            }
+            // Interpolate Red
+            int r = (((c00 >> 16) & 0xFF) * w00 +
+                     ((c10 >> 16) & 0xFF) * w10 +
+                     ((c01 >> 16) & 0xFF) * w01 +
+                     ((c11 >> 16) & 0xFF) * w11) >> 8;
 
-            // Pseudo-angle around swirl center (0-255)
-            int angle = (dx * 128 / (dist + 1)) + 64;
-            if (dy > 0) angle = 256 - angle;
+            // Interpolate Green
+            int g = (((c00 >> 8) & 0xFF) * w00 +
+                     ((c10 >> 8) & 0xFF) * w10 +
+                     ((c01 >> 8) & 0xFF) * w01 +
+                     ((c11 >> 8) & 0xFF) * w11) >> 8;
 
-            // --- Multi-tier parametric silk ribbon wave functions ---
-            // 1. Overarching spiral crest
-            int f1 = fast_sin(angle * 2 + dist * 3 / 2);
-            // 2. Translucent curved ribbon folds
-            int f2 = fast_cos(angle * 3 - dist * 2 + (dx * 64 / (width + 1)));
-            // 3. Crisp edge highlights
-            int f3 = fast_sin(angle * 4 + dist * 3 + 40);
+            // Interpolate Blue
+            int b = ((c00 & 0xFF) * w00 +
+                     (c10 & 0xFF) * w10 +
+                     (c01 & 0xFF) * w01 +
+                     (c11 & 0xFF) * w11) >> 8;
 
-            // Distance falloff from center of flower
-            int bloom_alpha = (max_radius - dist);
-            if (bloom_alpha < 0) bloom_alpha = 0;
-            if (bloom_alpha > 120) bloom_alpha = 120;
-            bloom_alpha = (bloom_alpha * 255) / 120;
-
-            // Calculate lighting and fold intensity
-            int fold = (f1 + f2) / 2; // -256 to +256
-
-            // Deep shadows between silk folds (#1E314D / #2D486E)
-            int shadow = 0;
-            if (fold < -40) {
-                shadow = (-fold - 40) * 180 / 216;
-            }
-
-            // Highlight crest along ribbon edge (#FFFFFF)
-            int highlight = 0;
-            if (f3 > 160 && fold > 20) {
-                highlight = (f3 - 160) * 190 / 96;
-            }
-
-            // Lilac / Lavender outer petals tint (matching top of HOME.PNG)
-            int lilac = 0;
-            if (y < cy && fold > 0) {
-                lilac = (cy - y) * 120 / cy;
-                if (lilac > 90) lilac = 90;
-            }
-
-            // Base petal ice-blue color (#CADAEF)
-            int pr = 202 - shadow + highlight + (lilac * 18 / 100);
-            int pg = 218 - (shadow * 8 / 10) + highlight;
-            int pb = 238 - (shadow * 5 / 10) + highlight + (lilac * 12 / 100);
-
-            // Clamping
-            if (pr < 30) pr = 30;   if (pr > 255) pr = 255;
-            if (pg < 45) pg = 45;   if (pg > 255) pg = 255;
-            if (pb < 75) pb = 75;   if (pb > 255) pb = 255;
-
-            // Alpha-blend bloom petal over sky-slate background
-            int r = (pr * bloom_alpha + bg_r * (255 - bloom_alpha)) >> 8;
-            int g = (pg * bloom_alpha + bg_g * (255 - bloom_alpha)) >> 8;
-            int b = (pb * bloom_alpha + bg_b * (255 - bloom_alpha)) >> 8;
-
-            buffer[y * width + x] = 0xFF000000 | ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b;
+            dst_row[x] = 0xFF000000 | ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b;
         }
     }
 }
