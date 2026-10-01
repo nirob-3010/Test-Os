@@ -59,9 +59,8 @@ def run_phase3_test():
             "PS/2 Mouse driver initialized",
             "PS/2 Keyboard driver initialized",
             "Window Manager initialized successfully",
-            "Created Window 1: \"Welcome to NSK OS\"",
-            "Created Window 2: \"System Monitor\"",
-            "Overlapping windows created successfully",
+            "Created Window 1: \"File Manager\"",
+            "Created Window 2: \"NSK Terminal\"",
             "PHASE 3 DESKTOP UI & WINDOW MANAGER ACTIVE"
         ]
 

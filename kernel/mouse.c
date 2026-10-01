@@ -17,28 +17,35 @@ static uint32_t bound_height = 768;
 static uint8_t mouse_cycle = 0;
 static int8_t  mouse_bytes[3];
 
-// 12x19 sleek modern pointer with border and shadow
+// 18x26 High-Contrast Retina-style pointer with black outline and drop shadow
 // ' ' = transparent, '#' = black border, '.' = white fill, 'S' = soft shadow
-static const char* cursor_bitmap[19] = {
-    "#           ",
-    "##          ",
-    "#.#         ",
-    "#. .#       ",
-    "#.  .#      ",
-    "#.   .#     ",
-    "#.    .#    ",
-    "#.     .#   ",
-    "#.      .#  ",
-    "#.       .# ",
-    "#.   ###### ",
-    "#.  .#S     ",
-    "#.#  .#S    ",
-    "## #. .#S   ",
-    "#   #. .#S  ",
-    "     #. .#S ",
-    "      #..#S ",
-    "       ##S  ",
-    "        S   "
+static const char* cursor_bitmap[26] = {
+    "##                ",
+    "###               ",
+    "#.##              ",
+    "#..##             ",
+    "#...##            ",
+    "#....##           ",
+    "#.....##          ",
+    "#......##         ",
+    "#.......##        ",
+    "#........##       ",
+    "#.........##      ",
+    "#..........##     ",
+    "#...........##    ",
+    "#............##   ",
+    "#........######## ",
+    "#....##...##SSSS  ",
+    "#...####...##SSS  ",
+    "##.##  ##...##SS  ",
+    "###     ##...##S  ",
+    "##       ##...##  ",
+    "#         ##...## ",
+    "           ##...##",
+    "            ##..##",
+    "             #### ",
+    "              ##S ",
+    "               S  "
 };
 
 static inline void mouse_wait_write(void) {
@@ -119,8 +126,8 @@ void mouse_init(uint32_t screen_width, uint32_t screen_height) {
     bound_width = screen_width ? screen_width : 1024;
     bound_height = screen_height ? screen_height : 768;
 
-    mouse_state.x = (int)bound_width / 2;
-    mouse_state.y = (int)bound_height / 2;
+    mouse_state.x = (int)bound_width * 46 / 100;
+    mouse_state.y = (int)bound_height * 42 / 100;
     mouse_state.prev_x = mouse_state.x;
     mouse_state.prev_y = mouse_state.y;
     mouse_state.buttons = 0;
@@ -174,21 +181,21 @@ void mouse_get_state(mouse_state_t* out_state) {
 }
 
 void mouse_draw_cursor(int x, int y) {
-    for (int r = 0; r < 19; r++) {
+    for (int r = 0; r < 26; r++) {
         const char* row = cursor_bitmap[r];
-        for (int c = 0; c < 12; c++) {
+        for (int c = 0; c < 18; c++) {
             char p = row[c];
-            if (p == ' ') continue;
+            if (p == ' ' || p == '\0') continue;
 
             int px = x + c;
             int py = y + r;
 
             if (p == '.') {
-                gfx_put_pixel(px, py, 0xFFFFFFFF); // Crisp white body
+                gfx_put_pixel(px, py, 0xFFFFFFFF); // High-contrast solid white body
             } else if (p == '#') {
-                gfx_put_pixel(px, py, 0xFF0F172A); // Midnight navy/black edge
+                gfx_put_pixel(px, py, 0xFF000000); // 2px crisp solid black boundary
             } else if (p == 'S') {
-                gfx_blend_pixel(px, py, 0x50000000); // 31% soft shadow
+                gfx_blend_pixel(px, py, 0x70000000); // Prominent drop shadow
             }
         }
     }
