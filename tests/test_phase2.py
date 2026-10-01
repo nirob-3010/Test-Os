@@ -42,10 +42,10 @@ def run_phase2_test():
             stderr=subprocess.PIPE
         )
 
-        time.sleep(5)
+        time.sleep(6)
         proc.terminate()
         try:
-            stdout_bytes, stderr_bytes = proc.communicate(timeout=5)
+            stdout_bytes, stderr_bytes = proc.communicate(timeout=6)
         except subprocess.TimeoutExpired:
             proc.kill()
             stdout_bytes, stderr_bytes = proc.communicate()

@@ -33,33 +33,52 @@ static inline uint32_t isqrt(uint32_t val) {
 
 bool gfx_init(multiboot_info_parsed_t* mbi) {
     uint64_t raw_addr = 0;
+    bool found_valid_fb = false;
 
-    if (mbi && mbi->fb_tag && mbi->fb_tag->framebuffer_addr) {
+    if (mbi && mbi->fb_tag && mbi->fb_tag->framebuffer_addr &&
+        mbi->fb_tag->framebuffer_addr != (uint64_t)-1 &&
+        (uint32_t)(mbi->fb_tag->framebuffer_addr & 0xFFFFFFFF) != 0xFFFFFFFF &&
+        mbi->fb_tag->framebuffer_width >= 320 && mbi->fb_tag->framebuffer_width <= 3840 &&
+        mbi->fb_tag->framebuffer_height >= 200 && mbi->fb_tag->framebuffer_height <= 2160 &&
+        mbi->fb_tag->framebuffer_pitch >= mbi->fb_tag->framebuffer_width * 4) {
+
         raw_addr = mbi->fb_tag->framebuffer_addr;
         screen_w = mbi->fb_tag->framebuffer_width;
         screen_h = mbi->fb_tag->framebuffer_height;
         screen_pitch = mbi->fb_tag->framebuffer_pitch / 4;
         front_buffer = (uint32_t*)((uint32_t)(raw_addr & 0xFFFFFFFF));
-    } else if (mbi && mbi->protocol_version == 1 && mbi->mb1_info && (mbi->mb1_info->flags & (1 << 12))) {
+        found_valid_fb = true;
+    } else if (mbi && mbi->protocol_version == 1 && mbi->mb1_info && (mbi->mb1_info->flags & (1 << 12)) &&
+               mbi->mb1_info->framebuffer_addr && mbi->mb1_info->framebuffer_addr != (uint64_t)-1 &&
+               (uint32_t)(mbi->mb1_info->framebuffer_addr & 0xFFFFFFFF) != 0xFFFFFFFF &&
+               mbi->mb1_info->framebuffer_width >= 320 && mbi->mb1_info->framebuffer_width <= 3840 &&
+               mbi->mb1_info->framebuffer_height >= 200 && mbi->mb1_info->framebuffer_height <= 2160 &&
+               mbi->mb1_info->framebuffer_pitch >= mbi->mb1_info->framebuffer_width * 4) {
+
         raw_addr = mbi->mb1_info->framebuffer_addr;
         screen_w = mbi->mb1_info->framebuffer_width;
         screen_h = mbi->mb1_info->framebuffer_height;
         screen_pitch = mbi->mb1_info->framebuffer_pitch / 4;
         front_buffer = (uint32_t*)((uint32_t)(raw_addr & 0xFFFFFFFF));
-    } else if (bga_is_available()) {
-        kprintf("[NSK GFX] No bootloader video tag; switching display via hardware BGA controller...\n");
-        screen_w = 1024;
-        screen_h = 768;
-        screen_pitch = 1024;
-        bga_set_video_mode(screen_w, screen_h, 32);
-        raw_addr = bga_get_framebuffer_addr();
-        front_buffer = (uint32_t*)raw_addr;
-    } else {
-        kprintf("[NSK GFX] NOTICE: Direct kernel boot without VBE tag; using 1024x768 display buffer\n");
-        screen_w = 1024;
-        screen_h = 768;
-        screen_pitch = 1024;
-        front_buffer = (uint32_t*)kmalloc_aligned(screen_w * screen_h * sizeof(uint32_t), 16);
+        found_valid_fb = true;
+    }
+
+    if (!found_valid_fb) {
+        if (bga_is_available()) {
+            kprintf("[NSK GFX] No valid bootloader video tag; configuring via hardware BGA controller...\n");
+            screen_w = 1024;
+            screen_h = 768;
+            screen_pitch = 1024;
+            bga_set_video_mode(screen_w, screen_h, 32);
+            raw_addr = bga_get_framebuffer_addr();
+            front_buffer = (uint32_t*)raw_addr;
+        } else {
+            kprintf("[NSK GFX] NOTICE: Direct kernel boot without VBE tag; using 1024x768 display buffer\n");
+            screen_w = 1024;
+            screen_h = 768;
+            screen_pitch = 1024;
+            front_buffer = (uint32_t*)kmalloc_aligned(screen_w * screen_h * sizeof(uint32_t), 16);
+        }
     }
 
     if (!front_buffer || screen_w == 0 || screen_h == 0) {
