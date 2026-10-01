@@ -108,6 +108,24 @@ _start:
     jmp .halt`
   },
   {
+    path: 'kernel/console.c',
+    name: 'console.c',
+    category: 'kernel',
+    language: 'c',
+    description: 'Unified Screen Console: Renders 8x16 font directly onto Linear Framebuffer (32bpp) or VGA text buffer',
+    content: `/**
+ * NSK OS v0.3 - Unified Screen Console Driver
+ */
+#include "console.h"
+#include "string.h"
+
+// Renders text and boot logs directly onto the VM screen / Linear Framebuffer
+void console_init(multiboot_info_parsed_t* mbi);
+void console_putc(char c);
+void console_write(const char* str);
+void console_clear(uint32_t color);`
+  },
+  {
     path: 'kernel/kernel.c',
     name: 'kernel.c',
     category: 'kernel',

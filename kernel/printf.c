@@ -1,9 +1,16 @@
 /**
  * NSK OS v0.3 - Kernel kprintf Engine
+ * Directs output to both COM1 Serial (0x3F8) and Screen Console (Framebuffer / VGA)
  */
 #include "printf.h"
 #include "serial.h"
+#include "console.h"
 #include "string.h"
+
+static void emit_char(char c) {
+    serial_putc(c);
+    console_putc(c);
+}
 
 static void utoa_internal(uint32_t value, char* str, int base) {
     char buf[36];
@@ -47,7 +54,7 @@ int kvprintf(const char* fmt, va_list args) {
             switch (fmt[i]) {
                 case 'c': {
                     char c = (char)va_arg(args, int);
-                    serial_putc(c);
+                    emit_char(c);
                     written++;
                     break;
                 }
@@ -55,7 +62,7 @@ int kvprintf(const char* fmt, va_list args) {
                     const char* s = va_arg(args, const char*);
                     if (!s) s = "(null)";
                     while (*s) {
-                        serial_putc(*s++);
+                        emit_char(*s++);
                         written++;
                     }
                     break;
@@ -65,7 +72,7 @@ int kvprintf(const char* fmt, va_list args) {
                     int32_t d = va_arg(args, int32_t);
                     itoa_internal(d, num_buf, 10);
                     for (int j = 0; num_buf[j] != '\0'; j++) {
-                        serial_putc(num_buf[j]);
+                        emit_char(num_buf[j]);
                         written++;
                     }
                     break;
@@ -74,7 +81,7 @@ int kvprintf(const char* fmt, va_list args) {
                     uint32_t u = va_arg(args, uint32_t);
                     utoa_internal(u, num_buf, 10);
                     for (int j = 0; num_buf[j] != '\0'; j++) {
-                        serial_putc(num_buf[j]);
+                        emit_char(num_buf[j]);
                         written++;
                     }
                     break;
@@ -88,47 +95,46 @@ int kvprintf(const char* fmt, va_list args) {
                         if (fmt[i] == 'x' && ch >= 'A' && ch <= 'F') {
                             ch += 32; // to lowercase
                         }
-                        serial_putc(ch);
+                        emit_char(ch);
                         written++;
                     }
                     break;
                 }
                 case 'p': {
                     uint32_t p = (uint32_t)va_arg(args, void*);
-                    serial_putc('0');
-                    serial_putc('x');
+                    emit_char('0');
+                    emit_char('x');
                     written += 2;
                     utoa_internal(p, num_buf, 16);
-                    // Pad with leading zeros up to 8 chars
                     int len = (int)strlen(num_buf);
                     for (int k = 0; k < 8 - len; k++) {
-                        serial_putc('0');
+                        emit_char('0');
                         written++;
                     }
                     for (int j = 0; num_buf[j] != '\0'; j++) {
                         char ch = num_buf[j];
                         if (ch >= 'A' && ch <= 'F') ch += 32;
-                        serial_putc(ch);
+                        emit_char(ch);
                         written++;
                     }
                     break;
                 }
                 case '%': {
-                    serial_putc('%');
+                    emit_char('%');
                     written++;
                     break;
                 }
                 default:
-                    serial_putc('%');
-                    serial_putc(fmt[i]);
+                    emit_char('%');
+                    emit_char(fmt[i]);
                     written += 2;
                     break;
             }
         } else {
             if (fmt[i] == '\n') {
-                serial_putc('\r');
+                emit_char('\r');
             }
-            serial_putc(fmt[i]);
+            emit_char(fmt[i]);
             written++;
         }
     }

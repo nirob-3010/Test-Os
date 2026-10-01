@@ -18,6 +18,7 @@ ISO_DIR   := isodir
 ISO_NAME  := nsk-os-0.3.iso
 
 C_SRCS := kernel/kernel.c \
+          kernel/console.c \
           kernel/gdt.c \
           kernel/idt.c \
           kernel/pic.c \

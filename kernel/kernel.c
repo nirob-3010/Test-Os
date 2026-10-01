@@ -7,6 +7,7 @@
 #include "types.h"
 #include "multiboot2.h"
 #include "serial.h"
+#include "console.h"
 #include "printf.h"
 #include "gdt.h"
 #include "idt.h"
@@ -40,6 +41,10 @@ void kmain(uint32_t magic, uint32_t addr) {
 
     // Step 3: Parse Multiboot Information Structure (supports both MB1 and MB2)
     multiboot_parse(magic, addr, &mbi_info);
+
+    // Initialize Graphical / VGA Screen Console (eliminates black screen in VM)
+    console_init(&mbi_info);
+    kprintf("NSK OS booting on Screen & COM1 Serial...\n\n");
 
     // Step 4: Initialize Global Descriptor Table (GDT)
     gdt_init();
