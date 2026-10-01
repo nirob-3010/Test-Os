@@ -23,7 +23,11 @@ C_SRCS := kernel/kernel.c \
           kernel/gfx.c \
           kernel/font.c \
           kernel/wallpaper.c \
+          kernel/mouse.c \
+          kernel/keyboard.c \
+          kernel/wm.c \
           kernel/phase2_demo.c \
+          kernel/phase3_demo.c \
           kernel/gdt.c \
           kernel/idt.c \
           kernel/pic.c \

@@ -17,6 +17,7 @@
 #include "kheap.h"
 #include "string.h"
 #include "phase2.h"
+#include "phase3.h"
 
 extern uint32_t _kernel_start;
 extern uint32_t _kernel_end;
@@ -112,6 +113,9 @@ void kmain(uint32_t magic, uint32_t addr) {
 
     // Launch Phase 2 Graphics Engine: Framebuffer, Wallpaper & Frosted Glass Panel
     phase2_graphics_init(&mbi_info);
+
+    // Launch Phase 3 Desktop UI & Window Manager: Taskbar, Windows, Mouse & Keyboard Event Loop
+    phase3_desktop_init();
 
     // Idle loop waiting for interrupts
     while (1) {

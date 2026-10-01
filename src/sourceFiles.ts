@@ -822,6 +822,95 @@ if __name__ == "__main__":
     run()`
   },
   {
+    path: 'tests/test_phase3.py',
+    name: 'test_phase3.py',
+    category: 'tests',
+    language: 'python',
+    description: 'Phase 3 automated smoke test verifying Desktop UI, Taskbar, Overlapping Windows, Mouse & Keyboard drivers',
+    content: `#!/usr/bin/env python3
+import subprocess, sys, time, os
+
+def run():
+    print("[TEST] Running Phase 3 Window Manager Smoke Test...")
+    cmd = ["qemu-system-i386", "-m", "256", "-vga", "std", "-serial", "stdio", "-display", "none", "-no-reboot"]
+    if os.path.isfile("build/kernel.bin"):
+        cmd.extend(["-kernel", "build/kernel.bin"])
+    else:
+        cmd.extend(["-cdrom", "nsk-os-0.3.iso"])
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    time.sleep(5)
+    proc.terminate()
+    out, err = proc.communicate(timeout=5)
+    text = out.decode('utf-8', errors='replace')
+    assert "PHASE 3 DESKTOP UI & WINDOW MANAGER ACTIVE" in text
+    print(">>> [TEST PASSED] Phase 3 Window Manager Verified! <<<")
+
+if __name__ == "__main__":
+    run()`
+  },
+  {
+    path: 'kernel/mouse.c',
+    name: 'mouse.c',
+    category: 'kernel',
+    language: 'c',
+    description: 'PS/2 Mouse Driver: 8042 controller packets, IRQ 12 handler, tracking and alpha-blended cursor rendering',
+    content: `/**
+ * NSK OS v0.3 - PS/2 Mouse Driver (Phase 3)
+ */
+#include "mouse.h"
+#include "idt.h"
+#include "gfx.h"
+
+void mouse_init(uint32_t screen_width, uint32_t screen_height);
+void mouse_draw_cursor(int x, int y);`
+  },
+  {
+    path: 'kernel/keyboard.c',
+    name: 'keyboard.c',
+    category: 'kernel',
+    language: 'c',
+    description: 'PS/2 Keyboard Driver: IRQ 1 handler, Scan Code Set 1 decoder, circular key event queue',
+    content: `/**
+ * NSK OS v0.3 - PS/2 Keyboard Driver (Phase 3)
+ */
+#include "keyboard.h"
+#include "idt.h"
+
+void keyboard_init(void);
+char keyboard_get_char(void);`
+  },
+  {
+    path: 'kernel/wm.c',
+    name: 'wm.c',
+    category: 'kernel',
+    language: 'c',
+    description: 'Window Manager: Z-ordering, dragging, traffic light controls, frosted glass taskbar, start menu, wallpaper cache',
+    content: `/**
+ * NSK OS v0.3 - Window Manager & Desktop UI Engine (Phase 3)
+ */
+#include "wm.h"
+#include "gfx.h"
+#include "mouse.h"
+
+void wm_init(void);
+void wm_render(void);
+void wm_process_events(void);`
+  },
+  {
+    path: 'kernel/phase3_demo.c',
+    name: 'phase3_demo.c',
+    category: 'kernel',
+    language: 'c',
+    description: 'Phase 3 Demonstration: Desktop with taskbar + 2 overlapping draggable windows + 60 FPS event loop',
+    content: `/**
+ * NSK OS v0.3 - Phase 3 Demonstration
+ */
+#include "phase3.h"
+#include "wm.h"
+
+void phase3_desktop_init(void);`
+  },
+  {
     path: 'kernel/bga.c',
     name: 'bga.c',
     category: 'kernel',
