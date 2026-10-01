@@ -160,8 +160,8 @@ void mouse_init(uint32_t screen_width, uint32_t screen_height) {
     register_interrupt_handler(44, mouse_interrupt_handler);
 
     // Unmask IRQ 2 (cascade) and IRQ 12 (PS/2 mouse) in PIC
-    pic_clear_mask(2);
-    pic_clear_mask(12);
+    pic_unmask_irq(2);
+    pic_unmask_irq(12);
 
     kprintf("[NSK MOUSE] PS/2 Mouse driver initialized (IRQ 12 active, Pos: [%d, %d])\n",
             mouse_state.x, mouse_state.y);

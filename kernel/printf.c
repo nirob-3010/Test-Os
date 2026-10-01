@@ -176,3 +176,148 @@ int kprintf(const char* fmt, ...) {
     va_end(args);
     return written;
 }
+
+int vsnprintf(char* buf, size_t size, const char* fmt, va_list args) {
+    char num_buf[36];
+    size_t written = 0;
+
+    for (size_t i = 0; fmt[i] != '\0'; i++) {
+        if (fmt[i] == '%') {
+            i++;
+
+            int width = 0;
+            while (fmt[i] >= '0' && fmt[i] <= '9') {
+                width = width * 10 + (fmt[i] - '0');
+                i++;
+            }
+
+            switch (fmt[i]) {
+                case 'c': {
+                    char c = (char)va_arg(args, int);
+                    if (buf && written + 1 < size) buf[written] = c;
+                    written++;
+                    break;
+                }
+                case 's': {
+                    const char* s = va_arg(args, const char*);
+                    if (!s) s = "(null)";
+                    int slen = (int)strlen(s);
+                    while (width > slen) {
+                        if (buf && written + 1 < size) buf[written] = ' ';
+                        written++;
+                        width--;
+                    }
+                    while (*s) {
+                        if (buf && written + 1 < size) buf[written] = *s;
+                        written++;
+                        s++;
+                    }
+                    break;
+                }
+                case 'd':
+                case 'i': {
+                    int32_t d = va_arg(args, int32_t);
+                    itoa_internal(d, num_buf, 10);
+                    int nlen = (int)strlen(num_buf);
+                    while (width > nlen) {
+                        if (buf && written + 1 < size) buf[written] = ' ';
+                        written++;
+                        width--;
+                    }
+                    for (int j = 0; num_buf[j] != '\0'; j++) {
+                        if (buf && written + 1 < size) buf[written] = num_buf[j];
+                        written++;
+                    }
+                    break;
+                }
+                case 'u': {
+                    uint32_t u = va_arg(args, uint32_t);
+                    utoa_internal(u, num_buf, 10);
+                    int nlen = (int)strlen(num_buf);
+                    while (width > nlen) {
+                        if (buf && written + 1 < size) buf[written] = ' ';
+                        written++;
+                        width--;
+                    }
+                    for (int j = 0; num_buf[j] != '\0'; j++) {
+                        if (buf && written + 1 < size) buf[written] = num_buf[j];
+                        written++;
+                    }
+                    break;
+                }
+                case 'x':
+                case 'X': {
+                    uint32_t x = va_arg(args, uint32_t);
+                    utoa_internal(x, num_buf, 16);
+                    for (int j = 0; num_buf[j] != '\0'; j++) {
+                        char ch = num_buf[j];
+                        if (fmt[i] == 'x' && ch >= 'A' && ch <= 'F') ch += 32;
+                        if (buf && written + 1 < size) buf[written] = ch;
+                        written++;
+                    }
+                    break;
+                }
+                case 'p': {
+                    uint32_t p = (uint32_t)va_arg(args, void*);
+                    if (buf && written + 1 < size) buf[written] = '0';
+                    written++;
+                    if (buf && written + 1 < size) buf[written] = 'x';
+                    written++;
+                    utoa_internal(p, num_buf, 16);
+                    int len = (int)strlen(num_buf);
+                    for (int k = 0; k < 8 - len; k++) {
+                        if (buf && written + 1 < size) buf[written] = '0';
+                        written++;
+                    }
+                    for (int j = 0; num_buf[j] != '\0'; j++) {
+                        char ch = num_buf[j];
+                        if (ch >= 'A' && ch <= 'F') ch += 32;
+                        if (buf && written + 1 < size) buf[written] = ch;
+                        written++;
+                    }
+                    break;
+                }
+                case '%': {
+                    if (buf && written + 1 < size) buf[written] = '%';
+                    written++;
+                    break;
+                }
+                default:
+                    if (buf && written + 1 < size) buf[written] = '%';
+                    written++;
+                    if (buf && written + 1 < size) buf[written] = fmt[i];
+                    written++;
+                    break;
+            }
+        } else {
+            if (buf && written + 1 < size) buf[written] = fmt[i];
+            written++;
+        }
+    }
+
+    if (buf && size > 0) {
+        if (written < size) {
+            buf[written] = '\0';
+        } else {
+            buf[size - 1] = '\0';
+        }
+    }
+
+    return (int)written;
+}
+
+int snprintf(char* buf, size_t size, const char* fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    int written = vsnprintf(buf, size, fmt, args);
+    va_end(args);
+    return written;
+}
+
+int ksprintf(char* buf, const char* fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    int written = vsnprintf(buf, 0x7FFFFFFF, fmt, args);
+    va_end(args);
+    return written;
+}

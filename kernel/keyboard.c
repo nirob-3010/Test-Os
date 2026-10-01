@@ -82,7 +82,7 @@ void keyboard_init(void) {
     register_interrupt_handler(33, keyboard_interrupt_handler);
 
     // Unmask IRQ 1 in PIC
-    pic_clear_mask(1);
+    pic_unmask_irq(1);
 
     kprintf("[NSK KBD] PS/2 Keyboard driver initialized (IRQ 1 active)\n");
 }

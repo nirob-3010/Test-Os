@@ -11,7 +11,7 @@ OBJCOPY := objcopy
 CFLAGS  := -m32 -ffreestanding -O2 -Wall -Wextra -nostdlib -fno-builtin \
            -fno-stack-protector -fno-pie -fno-pic -Iinclude
 ASFLAGS := -f elf32
-LDFLAGS := -m elf_i386 -T linker.ld -nostdlib
+LDFLAGS := -m elf_i386 -T linker.ld -nostdlib -z noexecstack
 
 BUILD_DIR := build
 ISO_DIR   := isodir
