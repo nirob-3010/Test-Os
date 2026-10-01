@@ -19,6 +19,7 @@ ISO_NAME  := nsk-os-0.3.iso
 
 C_SRCS := kernel/kernel.c \
           kernel/console.c \
+          kernel/bga.c \
           kernel/gfx.c \
           kernel/font.c \
           kernel/wallpaper.c \
