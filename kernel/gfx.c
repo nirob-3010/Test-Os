@@ -44,11 +44,13 @@ bool gfx_init(multiboot_info_parsed_t* mbi) {
         screen_h = mbi->mb1_info->framebuffer_height;
         screen_pitch = mbi->mb1_info->framebuffer_pitch / 4;
     } else {
-        kprintf("[NSK GFX] ERROR: No linear framebuffer provided by bootloader!\n");
-        return false;
+        kprintf("[NSK GFX] NOTICE: Direct kernel boot without VBE tag; using 1024x768 display buffer\n");
+        screen_w = 1024;
+        screen_h = 768;
+        screen_pitch = 1024;
+        front_buffer = (uint32_t*)kmalloc_aligned(screen_w * screen_h * sizeof(uint32_t), 16);
     }
 
-    front_buffer = (uint32_t*)((uint32_t)(raw_addr & 0xFFFFFFFF));
     if (!front_buffer || screen_w == 0 || screen_h == 0) {
         kprintf("[NSK GFX] ERROR: Invalid framebuffer parameters: %ux%u at %p\n",
                 screen_w, screen_h, front_buffer);

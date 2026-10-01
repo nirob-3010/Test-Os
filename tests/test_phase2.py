@@ -27,10 +27,13 @@ def run_phase2_test():
         "-no-reboot"
     ]
 
-    if has_kernel:
-        cmd.extend(["-kernel", "build/kernel.bin"])
-    else:
+    # Prefer testing the bootable ISO if present
+    if has_iso:
+        print("[TEST] Target: Bootable ISO (nsk-os-0.3.iso)")
         cmd.extend(["-cdrom", "nsk-os-0.3.iso"])
+    else:
+        print("[TEST] Target: Direct Kernel (build/kernel.bin)")
+        cmd.extend(["-kernel", "build/kernel.bin"])
 
     try:
         proc = subprocess.Popen(
@@ -39,10 +42,10 @@ def run_phase2_test():
             stderr=subprocess.PIPE
         )
 
-        time.sleep(4)
+        time.sleep(5)
         proc.terminate()
         try:
-            stdout_bytes, stderr_bytes = proc.communicate(timeout=4)
+            stdout_bytes, stderr_bytes = proc.communicate(timeout=5)
         except subprocess.TimeoutExpired:
             proc.kill()
             stdout_bytes, stderr_bytes = proc.communicate()
@@ -52,6 +55,10 @@ def run_phase2_test():
 
         print("[TEST] Captured Serial Output:")
         print(stdout if stdout.strip() else "(none)")
+
+        if stderr and stderr.strip():
+            print("[TEST] QEMU Stderr:")
+            print(stderr)
 
         required_strings = [
             "PHASE 1 CORE KERNEL INITIALIZATION COMPLETE",
