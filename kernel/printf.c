@@ -1,6 +1,7 @@
 /**
  * NSK OS v0.3 - Kernel kprintf Engine
  * Directs output to both COM1 Serial (0x3F8) and Screen Console (Framebuffer / VGA)
+ * Supports width specifiers (e.g. %2u, %7u) and clean pointer printing (%p)
  */
 #include "printf.h"
 #include "serial.h"
@@ -51,6 +52,14 @@ int kvprintf(const char* fmt, va_list args) {
     for (size_t i = 0; fmt[i] != '\0'; i++) {
         if (fmt[i] == '%') {
             i++;
+
+            // Parse optional width padding (e.g. %2u, %7u)
+            int width = 0;
+            while (fmt[i] >= '0' && fmt[i] <= '9') {
+                width = width * 10 + (fmt[i] - '0');
+                i++;
+            }
+
             switch (fmt[i]) {
                 case 'c': {
                     char c = (char)va_arg(args, int);
@@ -61,6 +70,12 @@ int kvprintf(const char* fmt, va_list args) {
                 case 's': {
                     const char* s = va_arg(args, const char*);
                     if (!s) s = "(null)";
+                    int slen = (int)strlen(s);
+                    while (width > slen) {
+                        emit_char(' ');
+                        written++;
+                        width--;
+                    }
                     while (*s) {
                         emit_char(*s++);
                         written++;
@@ -71,6 +86,12 @@ int kvprintf(const char* fmt, va_list args) {
                 case 'i': {
                     int32_t d = va_arg(args, int32_t);
                     itoa_internal(d, num_buf, 10);
+                    int nlen = (int)strlen(num_buf);
+                    while (width > nlen) {
+                        emit_char(' ');
+                        written++;
+                        width--;
+                    }
                     for (int j = 0; num_buf[j] != '\0'; j++) {
                         emit_char(num_buf[j]);
                         written++;
@@ -80,6 +101,12 @@ int kvprintf(const char* fmt, va_list args) {
                 case 'u': {
                     uint32_t u = va_arg(args, uint32_t);
                     utoa_internal(u, num_buf, 10);
+                    int nlen = (int)strlen(num_buf);
+                    while (width > nlen) {
+                        emit_char(' ');
+                        written++;
+                        width--;
+                    }
                     for (int j = 0; num_buf[j] != '\0'; j++) {
                         emit_char(num_buf[j]);
                         written++;

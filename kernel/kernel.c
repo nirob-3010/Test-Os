@@ -16,6 +16,7 @@
 #include "pmm.h"
 #include "kheap.h"
 #include "string.h"
+#include "phase2.h"
 
 extern uint32_t _kernel_start;
 extern uint32_t _kernel_end;
@@ -36,7 +37,7 @@ void kmain(uint32_t magic, uint32_t addr) {
 
     uint32_t kstart = (uint32_t)&_kernel_start;
     uint32_t kend   = (uint32_t)&_kernel_end;
-    kprintf("[NSK KERNEL] Kernel binary loaded at 0x%p - 0x%p (Size: %u KB)\n",
+    kprintf("[NSK KERNEL] Kernel binary loaded at %p - %p (Size: %u KB)\n",
             kstart, kend, (kend - kstart + 1023) / 1024);
 
     // Step 3: Parse Multiboot Information Structure (supports both MB1 and MB2)
@@ -70,9 +71,9 @@ void kmain(uint32_t magic, uint32_t addr) {
     void* p2 = kmalloc(256);
     void* p3 = kmalloc(4096);
 
-    kprintf("  Allocated p1 (64 bytes)   : 0x%p\n", p1);
-    kprintf("  Allocated p2 (256 bytes)  : 0x%p\n", p2);
-    kprintf("  Allocated p3 (4096 bytes) : 0x%p\n", p3);
+    kprintf("  Allocated p1 (64 bytes)   : %p\n", p1);
+    kprintf("  Allocated p2 (256 bytes)  : %p\n", p2);
+    kprintf("  Allocated p3 (4096 bytes) : %p\n", p3);
 
     if (p1 && p2 && p3) {
         strcpy((char*)p1, "NSK Kernel Heap Block 1 Test OK");
@@ -86,7 +87,7 @@ void kmain(uint32_t magic, uint32_t addr) {
         kprintf("  Freed p2 (256 bytes) [OK]\n");
 
         void* p4 = kmalloc(128);
-        kprintf("  Re-allocated p4 (128 bytes from freed block): 0x%p [OK]\n", p4);
+        kprintf("  Re-allocated p4 (128 bytes from freed block): %p [OK]\n", p4);
 
         kfree(p1);
         kfree(p3);
@@ -106,8 +107,11 @@ void kmain(uint32_t magic, uint32_t addr) {
     kprintf("       >>> PHASE 1 CORE KERNEL INITIALIZATION COMPLETE <<<       \n");
     kprintf(" System: x86 (i686) 32-bit Protected Mode                        \n");
     kprintf(" Core  : Multiboot2, GDT, IDT, PIC, PIT (100Hz), COM1, PMM, Heap \n");
-    kprintf(" Status: Ready for PHASE 2 (Graphics Engine & Framebuffer)       \n");
+    kprintf(" Status: Starting PHASE 2 (Graphics Engine & Framebuffer)...     \n");
     kprintf("=================================================================\n\n");
+
+    // Launch Phase 2 Graphics Engine: Framebuffer, Wallpaper & Frosted Glass Panel
+    phase2_graphics_init(&mbi_info);
 
     // Idle loop waiting for interrupts
     while (1) {
