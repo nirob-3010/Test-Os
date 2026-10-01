@@ -35,13 +35,13 @@ void sysinfo_update(void) {
     uint32_t ticks = pit_get_ticks();
 
     // 1. Real Physical RAM Metrics from PMM
-    uint32_t total_bytes = pmm_get_total_memory();
-    uint32_t used_bytes  = pmm_get_used_memory();
+    uint32_t total_blocks = pmm_get_total_blocks();
+    uint32_t used_blocks  = pmm_get_used_blocks();
 
-    if (total_bytes > 0) {
-        current_metrics.ram_total_mb = total_bytes / (1024 * 1024);
-        current_metrics.ram_used_mb  = used_bytes / (1024 * 1024);
-        current_metrics.ram_usage_pct = (uint32_t)(((uint64_t)used_bytes * 100) / total_bytes);
+    if (total_blocks > 0) {
+        current_metrics.ram_total_mb = (total_blocks * 4) / 1024;
+        current_metrics.ram_used_mb  = (used_blocks * 4) / 1024;
+        current_metrics.ram_usage_pct = (used_blocks * 100) / total_blocks;
         if (current_metrics.ram_usage_pct < 12) current_metrics.ram_usage_pct = 12; // Baseline OS resident
     }
 

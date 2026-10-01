@@ -12,6 +12,7 @@ CFLAGS  := -m32 -ffreestanding -O2 -Wall -Wextra -nostdlib -fno-builtin \
            -fno-stack-protector -fno-pie -fno-pic -Iinclude
 ASFLAGS := -f elf32
 LDFLAGS := -m elf_i386 -T linker.ld -nostdlib -z noexecstack
+LIBGCC  := $(shell $(CC) -m32 -print-libgcc-file-name 2>/dev/null)
 
 BUILD_DIR := build
 ISO_DIR   := isodir
@@ -67,7 +68,7 @@ $(BUILD_DIR)/kernel/%.o: kernel/%.c
 
 $(BUILD_DIR)/kernel.bin: $(ALL_OBJS) linker.ld
 	@mkdir -p $(BUILD_DIR)
-	$(LD) $(LDFLAGS) $(ALL_OBJS) -o $@
+	$(LD) $(LDFLAGS) $(ALL_OBJS) $(LIBGCC) -o $@
 	@echo ">>> [SUCCESS] Built Kernel Binary: $@"
 
 iso: $(BUILD_DIR)/kernel.bin boot/grub.cfg
