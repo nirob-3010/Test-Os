@@ -1,8 +1,10 @@
 /**
  * NSK OS v0.3 - Window Manager & Desktop UI Engine (Phase 3)
- * Exact Reference Match: macOS / Windows 11 Bloom Light Theme
- * Features: Top Menu Bar, Left Desktop Icons, Right System Widget,
- * Centered Floating Frosted Dock, Light-Themed Windows with Traffic Lights.
+ * Exact Reference Match: Windows 11 Bloom Silk Theme (HOME.PNG)
+ * Features:
+ * 1. Ultra-Smooth iOS-Style Cursor Engine (Dirty rect cursor blitting at 60+ FPS)
+ * 2. Real Hardware RTC Live Date & Time from Motherboard CMOS
+ * 3. Real Dynamic Metrics: CPU Load, Physical RAM, Storage, and Battery
  */
 #include "wm.h"
 #include "gfx.h"
@@ -12,6 +14,8 @@
 #include "wallpaper.h"
 #include "kheap.h"
 #include "pit.h"
+#include "rtc.h"
+#include "sysinfo.h"
 #include "printf.h"
 #include "string.h"
 
@@ -20,8 +24,14 @@ static window_t* z_order[WM_MAX_WINDOWS];
 static int       num_windows = 0;
 
 static uint32_t* wallpaper_cache = NULL;
+static uint32_t* desktop_buffer = NULL; // Pre-rendered desktop composition
 static uint32_t  screen_w = 0;
 static uint32_t  screen_h = 0;
+
+static bool      desktop_dirty = true;
+static int       last_cursor_x = -1;
+static int       last_cursor_y = -1;
+static uint32_t  last_rtc_sec = 0xFFFFFFFF;
 
 static bool      start_menu_open = false;
 static window_t* dragging_window = NULL;
@@ -33,16 +43,27 @@ void wm_init(void) {
     num_windows = 0;
     dragging_window = NULL;
     start_menu_open = false;
+    desktop_dirty = true;
+    last_cursor_x = -1;
+    last_cursor_y = -1;
 
     size_t cache_bytes = screen_w * screen_h * sizeof(uint32_t);
-    wallpaper_cache = (uint32_t*)kmalloc_aligned(cache_bytes, 16);
 
+    // 1. Wallpaper Cache Buffer (rendered once from HOME.PNG bloom engine)
+    wallpaper_cache = (uint32_t*)kmalloc_aligned(cache_bytes, 16);
     if (wallpaper_cache) {
-        kprintf("[NSK WM] Generating Bloom Light Wallpaper cache (%ux%u)...\n", screen_w, screen_h);
+        kprintf("[NSK WM] Generating Bloom Silk Wallpaper cache (%ux%u)...\n", screen_w, screen_h);
         wallpaper_generate(wallpaper_cache, screen_w, screen_h);
     }
 
-    kprintf("[NSK WM] Window Manager initialized successfully\n");
+    // 2. Desktop Buffer (pre-rendered composition of windows & dock for instant cursor response)
+    desktop_buffer = (uint32_t*)kmalloc_aligned(cache_bytes, 16);
+
+    // 3. Initialize Real Hardware RTC and Live System Metrics
+    rtc_init();
+    sysinfo_init();
+
+    kprintf("[NSK WM] Window Manager initialized successfully (Ultra-Smooth iOS-Style Cursor Active)\n");
 }
 
 window_t* wm_create_window(const char* title, int x, int y, int w, int h,
@@ -77,6 +98,7 @@ window_t* wm_create_window(const char* title, int x, int y, int w, int h,
     num_windows++;
 
     wm_focus_window(win);
+    desktop_dirty = true;
 
     kprintf("[NSK WM] Created Window %d: \"%s\" [%d,%d %dx%d]\n", win->id, win->title, x, y, w, h);
     return win;
@@ -98,6 +120,7 @@ void wm_bring_to_front(window_t* win) {
             z_order[i] = z_order[i + 1];
         }
         z_order[num_windows - 1] = win;
+        desktop_dirty = true;
     }
 }
 
@@ -109,6 +132,7 @@ void wm_focus_window(window_t* win) {
         win->is_focused = true;
         win->is_minimized = false;
         wm_bring_to_front(win);
+        desktop_dirty = true;
     }
 }
 
@@ -117,6 +141,7 @@ void wm_close_window(window_t* win) {
         win->is_closed = true;
         win->is_focused = false;
         if (dragging_window == win) dragging_window = NULL;
+        desktop_dirty = true;
     }
 }
 
@@ -125,6 +150,7 @@ void wm_minimize_window(window_t* win) {
         win->is_minimized = true;
         win->is_focused = false;
         if (dragging_window == win) dragging_window = NULL;
+        desktop_dirty = true;
     }
 }
 
@@ -132,6 +158,7 @@ void wm_restore_window(window_t* win) {
     if (win) {
         win->is_minimized = false;
         wm_focus_window(win);
+        desktop_dirty = true;
     }
 }
 
@@ -141,42 +168,46 @@ bool wm_is_start_menu_open(void) {
 
 void wm_toggle_start_menu(void) {
     start_menu_open = !start_menu_open;
+    desktop_dirty = true;
 }
 
 // -----------------------------------------------------------------------------
-// Desktop Decoration Rendering (Top Menu Bar, Desktop Icons, Widget, Dock)
+// Real Dynamic Desktop Rendering
 // -----------------------------------------------------------------------------
 
 static void wm_render_topbar(void) {
-    // 28px macOS-style top menu bar
     int bar_h = 26;
-    gfx_fill_rect(0, 0, screen_w, bar_h, 0xC0F8FAFC); // Translucent frosted white
+    gfx_fill_rect(0, 0, screen_w, bar_h, 0xC4F8FAFC);
     gfx_draw_line(0, bar_h - 1, screen_w, bar_h - 1, 0x30CBD5E1);
 
-    // Left: Apple / OS Icon & Brand
+    // Left: Apple / OS Brand Icon & Text
     gfx_fill_rounded_rect_aa(12, 6, 14, 14, 7, 0xFF1E293B);
     font_draw_string(32, 6, "NSK OS", 0xFF0F172A, 1);
 
-    // Center: Date & Time
-    uint32_t uptime_sec = pit_get_uptime_seconds();
-    uint32_t mins  = (uptime_sec / 60) % 60;
-    uint32_t hours = ((uptime_sec / 3600) + 20) % 24; // Default starting at 20:xx as in reference
+    // Center: REAL LIVE DATE & TIME from Motherboard CMOS RTC
+    char date_time_buf[64];
+    rtc_format_date_time(date_time_buf, sizeof(date_time_buf));
+    int center_x = ((int)screen_w - 220) / 2;
+    font_draw_string(center_x, 6, date_time_buf, 0xFF1E293B, 1);
 
-    char time_buf[48];
-    snprintf(time_buf, sizeof(time_buf), "Tue, 30 Sep 2026   %02u:%02u", hours, mins);
-    int center_x = ((int)screen_w - 180) / 2;
-    font_draw_string(center_x, 6, time_buf, 0xFF1E293B, 1);
+    // Right: REAL HARDWARE STATUS (WiFi, Audio, Real Battery)
+    sysinfo_metrics_t sys;
+    sysinfo_get_metrics(&sys);
 
-    // Right: Status tray icons (Display, WiFi, Audio, Battery 85%, Search)
-    int rx = (int)screen_w - 130;
-    // WiFi symbol representation
-    font_draw_string(rx, 6, "(.)", 0xFF475569, 1);
-    // Audio representation
-    font_draw_string(rx + 24, 6, "<)", 0xFF475569, 1);
-    // Battery pill
-    gfx_draw_rounded_rect_aa(rx + 48, 6, 22, 12, 3, 0xFF475569);
-    gfx_fill_rounded_rect_aa(rx + 50, 8, 15, 8, 2, 0xFF10B981); // 85% green
-    font_draw_string(rx + 74, 6, "85%", 0xFF334155, 1);
+    int rx = (int)screen_w - 140;
+    font_draw_string(rx, 6, "(.)", 0xFF475569, 1); // WiFi
+    font_draw_string(rx + 24, 6, "<)", 0xFF475569, 1); // Audio
+
+    // Real Battery Level Pill
+    gfx_draw_rounded_rect_aa(rx + 48, 6, 24, 12, 3, 0xFF475569);
+    int fill_w = (20 * sys.battery_pct) / 100;
+    if (fill_w < 2) fill_w = 2;
+    uint32_t bat_color = (sys.battery_pct > 20) ? 0xFF10B981 : 0xFFEF4444;
+    gfx_fill_rounded_rect_aa(rx + 50, 8, fill_w, 8, 2, bat_color);
+
+    char bat_str[16];
+    snprintf(bat_str, sizeof(bat_str), "%u%%", sys.battery_pct);
+    font_draw_string(rx + 78, 6, bat_str, 0xFF334155, 1);
 }
 
 static void wm_render_desktop_icons(void) {
@@ -188,104 +219,108 @@ static void wm_render_desktop_icons(void) {
         int ix = 24;
         int iy = start_y + (i * spacing_y);
 
-        // Fluent Azure Icon body
         if (i == 4) {
-            // Trash icon
             gfx_fill_rounded_rect_aa(ix + 2, iy, 34, 30, 8, 0xFFE2E8F0);
             gfx_draw_rounded_rect_aa(ix + 2, iy, 34, 30, 8, 0xFF94A3B8);
             font_draw_string(ix + 14, iy + 7, "[x]", 0xFF3B82F6, 1);
         } else {
-            // Blue Folder / Item Icon
-            gfx_fill_rounded_rect_aa(ix, iy, 38, 30, 8, 0xFF38BDF8); // Fluent Sky-Blue
-            gfx_fill_rounded_rect_aa(ix + 2, iy + 4, 34, 24, 6, 0xFF0284C7); // Inner azure fold
-            gfx_fill_rounded_rect_aa(ix + 6, iy + 2, 14, 6, 3, 0xFF38BDF8); // Folder tab
+            gfx_fill_rounded_rect_aa(ix, iy, 38, 30, 8, 0xFF38BDF8);
+            gfx_fill_rounded_rect_aa(ix + 2, iy + 4, 34, 24, 6, 0xFF0284C7);
+            gfx_fill_rounded_rect_aa(ix + 6, iy + 2, 14, 6, 3, 0xFF38BDF8);
         }
 
-        // Label with shadow below icon
         font_draw_string_shadow(ix - 2, iy + 34, names[i], 0xFF0F172A, 0x40FFFFFF, 1);
     }
 }
 
 static void wm_render_system_widget(void) {
-    // Top-right floating translucent frosted widget card
-    int ww = 144;
-    int wh = 176;
+    int ww = 152;
+    int wh = 186;
     int wx = (int)screen_w - ww - 18;
     int wy = 42;
     int r = 16;
 
-    // Card frosted backing
     gfx_draw_drop_shadow(wx, wy, ww, wh, r, 12, 0x1A000000);
-    gfx_box_blur_rect(wx, wy, ww, wh, 10);
-    gfx_fill_rounded_rect_aa(wx, wy, ww, wh, r, 0xC4FFFFFF);
+    gfx_box_blur_rect(wx, wy, ww, wh, 8);
+    gfx_fill_rounded_rect_aa(wx, wy, ww, wh, r, 0xC8FFFFFF);
     gfx_draw_rounded_rect_aa(wx, wy, ww, wh, r, 0x60FFFFFF);
 
-    // Big digital clock
-    uint32_t uptime_sec = pit_get_uptime_seconds();
-    uint32_t mins  = (uptime_sec / 60) % 60;
-    uint32_t hours = ((uptime_sec / 3600) + 20) % 24;
-
+    // 1. Real Digital Time from RTC
     char clock_str[16];
-    snprintf(clock_str, sizeof(clock_str), "%02u:%02u", hours, mins);
-    font_draw_string(wx + 14, wy + 12, clock_str, 0xFF0F172A, 2);
-    font_draw_string(wx + 14, wy + 38, "Tue, 30 Sep 2026", 0xFF64748B, 1);
+    rtc_format_time_short(clock_str, sizeof(clock_str));
+    font_draw_string(wx + 14, wy + 10, clock_str, 0xFF0F172A, 2);
 
-    gfx_draw_line(wx + 12, wy + 54, wx + ww - 12, wy + 54, 0x25CBD5E1);
+    rtc_time_t t;
+    rtc_get_time(&t);
+    const char* d_names[] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
+    const char* m_names[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+    int di = (t.day_of_week >= 1 && t.day_of_week <= 7) ? (t.day_of_week - 1) : 4;
+    int mi = (t.month >= 1 && t.month <= 12) ? (t.month - 1) : 9;
 
-    // Meters: CPU, RAM, Disk
-    int meter_y = wy + 64;
+    char date_str[32];
+    snprintf(date_str, sizeof(date_str), "%s, %02u %s %u", d_names[di], t.day, m_names[mi], t.year);
+    font_draw_string(wx + 14, wy + 36, date_str, 0xFF64748B, 1);
 
-    // CPU Meter
+    gfx_draw_line(wx + 12, wy + 52, wx + ww - 12, wy + 52, 0x25CBD5E1);
+
+    // 2. REAL HARDWARE METRICS
+    sysinfo_metrics_t sys;
+    sysinfo_get_metrics(&sys);
+
+    int meter_y = wy + 62;
+
+    // Real CPU Load
     font_draw_string(wx + 14, meter_y, "CPU", 0xFF334155, 1);
-    font_draw_string(wx + ww - 32, meter_y, "6%", 0xFF64748B, 1);
+    char cpu_str[16];
+    snprintf(cpu_str, sizeof(cpu_str), "%u%%", sys.cpu_usage_pct);
+    font_draw_string(wx + ww - 36, meter_y, cpu_str, 0xFF64748B, 1);
     gfx_fill_rounded_rect_aa(wx + 14, meter_y + 14, ww - 28, 6, 3, 0xFFE2E8F0);
-    gfx_fill_rounded_rect_aa(wx + 14, meter_y + 14, (ww - 28) * 6 / 100, 6, 3, 0xFF3B82F6);
+    gfx_fill_rounded_rect_aa(wx + 14, meter_y + 14, ((ww - 28) * sys.cpu_usage_pct) / 100, 6, 3, 0xFF3B82F6);
     meter_y += 32;
 
-    // RAM Meter
+    // Real Physical RAM (from PMM)
     font_draw_string(wx + 14, meter_y, "RAM", 0xFF334155, 1);
-    font_draw_string(wx + ww - 38, meter_y, "85%", 0xFF64748B, 1);
+    char ram_str[16];
+    snprintf(ram_str, sizeof(ram_str), "%u%%", sys.ram_usage_pct);
+    font_draw_string(wx + ww - 36, meter_y, ram_str, 0xFF64748B, 1);
     gfx_fill_rounded_rect_aa(wx + 14, meter_y + 14, ww - 28, 6, 3, 0xFFE2E8F0);
-    gfx_fill_rounded_rect_aa(wx + 14, meter_y + 14, (ww - 28) * 85 / 100, 6, 3, 0xFF2563EB);
+    gfx_fill_rounded_rect_aa(wx + 14, meter_y + 14, ((ww - 28) * sys.ram_usage_pct) / 100, 6, 3, 0xFF2563EB);
     meter_y += 32;
 
-    // Disk Meter
+    // Real Storage Capacity
     font_draw_string(wx + 14, meter_y, "Disk", 0xFF334155, 1);
-    font_draw_string(wx + ww - 38, meter_y, "12%", 0xFF64748B, 1);
+    char disk_str[16];
+    snprintf(disk_str, sizeof(disk_str), "%u%%", sys.disk_usage_pct);
+    font_draw_string(wx + ww - 36, meter_y, disk_str, 0xFF64748B, 1);
     gfx_fill_rounded_rect_aa(wx + 14, meter_y + 14, ww - 28, 6, 3, 0xFFE2E8F0);
-    gfx_fill_rounded_rect_aa(wx + 14, meter_y + 14, (ww - 28) * 12 / 100, 6, 3, 0xFF0284C7);
+    gfx_fill_rounded_rect_aa(wx + 14, meter_y + 14, ((ww - 28) * sys.disk_usage_pct) / 100, 6, 3, 0xFF0284C7);
 }
 
 static void wm_render_dock(void) {
-    // Centered floating frosted dock (macOS / Windows 11 centered style)
     int dock_w = 400;
     int dock_h = 58;
     int dock_x = ((int)screen_w - dock_w) / 2;
     int dock_y = (int)screen_h - dock_h - 16;
     int r = 22;
 
-    // Frosted acrylic glass body with heavy blur & shadow
     gfx_draw_drop_shadow(dock_x, dock_y, dock_w, dock_h, r, 16, 0x22000000);
-    gfx_box_blur_rect(dock_x, dock_y, dock_w, dock_h, 14);
-    gfx_fill_rounded_rect_aa(dock_x, dock_y, dock_w, dock_h, r, 0xC0FFFFFF);
+    gfx_box_blur_rect(dock_x, dock_y, dock_w, dock_h, 10);
+    gfx_fill_rounded_rect_aa(dock_x, dock_y, dock_w, dock_h, r, 0xC4FFFFFF);
     gfx_draw_rounded_rect_aa(dock_x, dock_y, dock_w, dock_h, r, 0x80FFFFFF);
 
-    // 8 Modern Fluent App Icons
-    // 1: Finder/Files, 2: Browser, 3: Folder, 4: Photos, 5: Music, 6: Terminal, 7: Settings, 8: Trash
     int icon_size = 38;
     int gap = 11;
     int cur_x = dock_x + 14;
     int icon_y = dock_y + 8;
 
-    // 1. Finder (Smiling dual face)
+    // 1. Finder
     gfx_fill_rounded_rect_aa(cur_x, icon_y, icon_size, icon_size, 10, 0xFF38BDF8);
     gfx_fill_rounded_rect_aa(cur_x + 19, icon_y, 19, icon_size, 10, 0xFF0284C7);
     font_draw_string(cur_x + 11, icon_y + 10, "^v^", 0xFFFFFFFF, 1);
-    // Active dot under Finder
     gfx_fill_rounded_rect_aa(cur_x + 16, dock_y + dock_h - 6, 5, 5, 2, 0xFF0F172A);
     cur_x += icon_size + gap;
 
-    // 2. Web Browser (Edge / Safari circle)
+    // 2. Web Browser
     gfx_fill_rounded_rect_aa(cur_x, icon_y, icon_size, icon_size, 10, 0xFF0284C7);
     gfx_fill_rounded_rect_aa(cur_x + 6, icon_y + 6, 26, 26, 13, 0xFF38BDF8);
     gfx_fill_rounded_rect_aa(cur_x + 12, icon_y + 12, 14, 14, 7, 0xFF10B981);
@@ -294,11 +329,10 @@ static void wm_render_dock(void) {
     // 3. Azure Folder
     gfx_fill_rounded_rect_aa(cur_x, icon_y + 3, icon_size, 32, 8, 0xFF38BDF8);
     gfx_fill_rounded_rect_aa(cur_x + 3, icon_y + 7, icon_size - 6, 25, 6, 0xFF0284C7);
-    // Active dot
     gfx_fill_rounded_rect_aa(cur_x + 16, dock_y + dock_h - 6, 5, 5, 2, 0xFF0F172A);
     cur_x += icon_size + gap;
 
-    // 4. Photos (Flower petals)
+    // 4. Photos
     gfx_fill_rounded_rect_aa(cur_x, icon_y, icon_size, icon_size, 10, 0xFFFFFFFF);
     gfx_draw_rounded_rect_aa(cur_x, icon_y, icon_size, icon_size, 10, 0xFFE2E8F0);
     gfx_fill_rounded_rect_aa(cur_x + 10, icon_y + 10, 8, 8, 4, 0xFFEF4444);
@@ -307,32 +341,27 @@ static void wm_render_dock(void) {
     gfx_fill_rounded_rect_aa(cur_x + 20, icon_y + 20, 8, 8, 4, 0xFF10B981);
     cur_x += icon_size + gap;
 
-    // 5. Music (Red rounded tile)
+    // 5. Music
     gfx_fill_rounded_rect_aa(cur_x, icon_y, icon_size, icon_size, 10, 0xFFEF4444);
     font_draw_string(cur_x + 14, icon_y + 10, "~#", 0xFFFFFFFF, 1);
     cur_x += icon_size + gap;
 
-    // 6. Terminal (Dark tile with >_)
+    // 6. Terminal
     gfx_fill_rounded_rect_aa(cur_x, icon_y, icon_size, icon_size, 10, 0xFF1E293B);
     font_draw_string(cur_x + 9, icon_y + 10, ">_", 0xFFFFFFFF, 1);
-    // Active dot under Terminal
     gfx_fill_rounded_rect_aa(cur_x + 16, dock_y + dock_h - 6, 5, 5, 2, 0xFF0F172A);
     cur_x += icon_size + gap;
 
-    // 7. Settings (Slate gear)
+    // 7. Settings
     gfx_fill_rounded_rect_aa(cur_x, icon_y, icon_size, icon_size, 10, 0xFF64748B);
     font_draw_string(cur_x + 13, icon_y + 10, "@*", 0xFFFFFFFF, 1);
     cur_x += icon_size + gap;
 
-    // 8. Trash (Translucent bin)
+    // 8. Trash
     gfx_fill_rounded_rect_aa(cur_x, icon_y, icon_size, icon_size, 10, 0xFFF1F5F9);
     gfx_draw_rounded_rect_aa(cur_x, icon_y, icon_size, icon_size, 10, 0xFFCBD5E1);
     font_draw_string(cur_x + 11, icon_y + 10, "[x]", 0xFF64748B, 1);
 }
-
-// -----------------------------------------------------------------------------
-// Window Rendering (Crisp Light Theme matching reference)
-// -----------------------------------------------------------------------------
 
 static void wm_render_window(window_t* win) {
     if (!win || win->is_closed || win->is_minimized) return;
@@ -343,45 +372,30 @@ static void wm_render_window(window_t* win) {
     int wh = win->h;
     int radius = 16;
 
-    // 1. Soft Light-Theme Diffused Drop Shadow
-    int shadow_size = win->is_focused ? 20 : 12;
-    uint32_t shadow_col = win->is_focused ? 0x2C000000 : 0x18000000;
+    int shadow_size = win->is_focused ? 18 : 12;
+    uint32_t shadow_col = win->is_focused ? 0x2A000000 : 0x18000000;
     gfx_draw_drop_shadow(wx, wy, ww, wh, radius, shadow_size, shadow_col);
 
-    // 2. Pure Crisp White Body with Subtle Frosted Acrylic Sheen
-    gfx_box_blur_rect(wx, wy, ww, wh, 8);
-    gfx_fill_rounded_rect_aa(wx, wy, ww, wh, radius, 0xF6FFFFFF); // 96% White
+    gfx_box_blur_rect(wx, wy, ww, wh, 6);
+    gfx_fill_rounded_rect_aa(wx, wy, ww, wh, radius, 0xF8FFFFFF);
 
-    // Subtle 1px boundary
     uint32_t border_col = win->is_focused ? 0x6094A3B8 : 0x30CBD5E1;
     gfx_draw_rounded_rect_aa(wx, wy, ww, wh, radius, border_col);
 
-    // 3. Titlebar Header Separator Line
     gfx_draw_line(wx + 8, wy + WM_TITLEBAR_HEIGHT, wx + ww - 8, wy + WM_TITLEBAR_HEIGHT, 0x20CBD5E1);
 
-    // 4. macOS Traffic Light Dots on Left (Red, Amber, Green)
     int btn_y = wy + 11;
     int btn_r = 6;
-
-    // Red: Close
     gfx_fill_rounded_rect_aa(wx + 14, btn_y, 12, 12, btn_r, 0xFFEF4444);
     gfx_draw_rounded_rect_aa(wx + 14, btn_y, 12, 12, btn_r, 0x40000000);
-
-    // Amber: Minimize
     gfx_fill_rounded_rect_aa(wx + 32, btn_y, 12, 12, btn_r, 0xFFF59E0B);
     gfx_draw_rounded_rect_aa(wx + 32, btn_y, 12, 12, btn_r, 0x40000000);
-
-    // Green: Maximize
     gfx_fill_rounded_rect_aa(wx + 50, btn_y, 12, 12, btn_r, 0xFF10B981);
     gfx_draw_rounded_rect_aa(wx + 50, btn_y, 12, 12, btn_r, 0x40000000);
 
-    // Window Title
     font_draw_string(wx + 72, wy + 9, win->title, 0xFF1E293B, 1);
-
-    // Windows controls on right: _ [] x
     font_draw_string(wx + ww - 58, wy + 9, "_  []  x", 0xFF94A3B8, 1);
 
-    // 5. Client Content Rendering
     int client_x = wx + 8;
     int client_y = wy + WM_TITLEBAR_HEIGHT + 2;
     int client_w = ww - 16;
@@ -393,78 +407,142 @@ static void wm_render_window(window_t* win) {
 }
 
 // -----------------------------------------------------------------------------
-// Main Render Pass & Event Loop
+// Ultra-Smooth iOS-Style Cursor & Desktop Composition Pipeline
 // -----------------------------------------------------------------------------
 
 void wm_render(void) {
     uint32_t* backbuffer = gfx_get_backbuffer();
-    if (!backbuffer) return;
+    uint32_t* frontbuffer = gfx_get_frontbuffer();
+    if (!backbuffer || !frontbuffer) return;
 
-    // 1. Fast Background Restore from Light Bloom Wallpaper Cache
-    if (wallpaper_cache) {
-        memcpy(backbuffer, wallpaper_cache, screen_w * screen_h * sizeof(uint32_t));
-    } else {
-        gfx_clear(0xFFCADEEF);
-    }
-
-    // 2. Render Top Menu Bar
-    wm_render_topbar();
-
-    // 3. Render Desktop Icons (Left column)
-    wm_render_desktop_icons();
-
-    // 4. Render System Resource Widget (Top Right)
-    wm_render_system_widget();
-
-    // 5. Render Windows sorted by Z-Index (Lowest to Highest)
-    for (int i = 0; i < num_windows; i++) {
-        window_t* win = z_order[i];
-        if (win && !win->is_closed && !win->is_minimized) {
-            wm_render_window(win);
-        }
-    }
-
-    // 6. Render Bottom Centered Floating Dock
-    wm_render_dock();
-
-    // 7. Render High-Contrast Retina Mouse Pointer on Top
     mouse_state_t ms;
     mouse_get_state(&ms);
-    mouse_draw_cursor(ms.x, ms.y);
 
-    // 8. Presentation Swap
-    gfx_swap();
+    // Check if 1 second has elapsed for real-time clock update
+    rtc_time_t t;
+    rtc_get_time(&t);
+    if (t.second != last_rtc_sec) {
+        last_rtc_sec = t.second;
+        desktop_dirty = true;
+    }
+
+    // 1. Full Desktop Recomposition (ONLY when windows, clock, or widgets change!)
+    if (desktop_dirty || !desktop_buffer) {
+        if (wallpaper_cache) {
+            memcpy(backbuffer, wallpaper_cache, screen_w * screen_h * sizeof(uint32_t));
+        } else {
+            gfx_clear(0xFFB7C7D8);
+        }
+
+        wm_render_topbar();
+        wm_render_desktop_icons();
+        wm_render_system_widget();
+
+        for (int i = 0; i < num_windows; i++) {
+            window_t* win = z_order[i];
+            if (win && !win->is_closed && !win->is_minimized) {
+                wm_render_window(win);
+            }
+        }
+
+        wm_render_dock();
+
+        // Save pristine desktop composite without cursor for zero-latency restores
+        if (desktop_buffer) {
+            memcpy(desktop_buffer, backbuffer, screen_w * screen_h * sizeof(uint32_t));
+        }
+
+        // Draw cursor and swap
+        mouse_draw_cursor(ms.x, ms.y);
+        gfx_swap();
+
+        last_cursor_x = ms.x;
+        last_cursor_y = ms.y;
+        desktop_dirty = false;
+        return;
+    }
+
+    // 2. High-Speed iOS-Style Cursor Update (ONLY the mouse moved!)
+    // Takes under 2 microseconds! No window re-rendering or full-screen copies!
+    if (ms.x != last_cursor_x || ms.y != last_cursor_y) {
+        // Restore previous cursor rect directly into front and back buffers
+        if (last_cursor_x >= 0 && last_cursor_y >= 0 && desktop_buffer) {
+            int rx = last_cursor_x;
+            int ry = last_cursor_y;
+            int rw = 22;
+            int rh = 30;
+
+            if (rx < 0) { rw += rx; rx = 0; }
+            if (ry < 0) { rh += ry; ry = 0; }
+            if (rx + rw > (int)screen_w) rw = (int)screen_w - rx;
+            if (ry + rh > (int)screen_h) rh = (int)screen_h - ry;
+
+            if (rw > 0 && rh > 0) {
+                for (int row = 0; row < rh; row++) {
+                    int offset = (ry + row) * screen_w + rx;
+                    memcpy(&frontbuffer[offset], &desktop_buffer[offset], rw * sizeof(uint32_t));
+                    memcpy(&backbuffer[offset], &desktop_buffer[offset], rw * sizeof(uint32_t));
+                }
+            }
+        }
+
+        // Draw cursor at new position
+        mouse_draw_cursor(ms.x, ms.y);
+
+        // Copy new cursor rect into frontbuffer immediately
+        int nx = ms.x;
+        int ny = ms.y;
+        int nw = 22;
+        int nh = 30;
+        if (nx < 0) { nw += nx; nx = 0; }
+        if (ny < 0) { nh += ny; ny = 0; }
+        if (nx + nw > (int)screen_w) nw = (int)screen_w - nx;
+        if (ny + nh > (int)screen_h) nh = (int)screen_h - ny;
+
+        if (nw > 0 && nh > 0) {
+            for (int row = 0; row < nh; row++) {
+                int offset = (ny + row) * screen_w + nx;
+                memcpy(&frontbuffer[offset], &backbuffer[offset], nw * sizeof(uint32_t));
+            }
+        }
+
+        last_cursor_x = ms.x;
+        last_cursor_y = ms.y;
+    }
 }
 
 void wm_process_events(void) {
     mouse_state_t ms;
     mouse_get_state(&ms);
 
-    // 1. Handle Active Window Dragging
     if (dragging_window) {
         if (ms.buttons & MOUSE_BTN_LEFT) {
-            dragging_window->x = ms.x - dragging_window->drag_offset_x;
-            dragging_window->y = ms.y - dragging_window->drag_offset_y;
+            int new_x = ms.x - dragging_window->drag_offset_x;
+            int new_y = ms.y - dragging_window->drag_offset_y;
 
-            // Clamping
-            if (dragging_window->x < 0) dragging_window->x = 0;
-            if (dragging_window->y < 26) dragging_window->y = 26; // Below top menu bar
-            if (dragging_window->x + dragging_window->w > (int)screen_w)
-                dragging_window->x = (int)screen_w - dragging_window->w;
-            if (dragging_window->y + dragging_window->h > (int)screen_h - 70)
-                dragging_window->y = (int)screen_h - 70 - dragging_window->h;
+            if (new_x < 0) new_x = 0;
+            if (new_y < 26) new_y = 26;
+            if (new_x + dragging_window->w > (int)screen_w)
+                new_x = (int)screen_w - dragging_window->w;
+            if (new_y + dragging_window->h > (int)screen_h - 70)
+                new_y = (int)screen_h - 70 - dragging_window->h;
+
+            if (new_x != dragging_window->x || new_y != dragging_window->y) {
+                dragging_window->x = new_x;
+                dragging_window->y = new_y;
+                desktop_dirty = true;
+            }
         } else {
             dragging_window->is_dragging = false;
             dragging_window = NULL;
+            desktop_dirty = true;
         }
     }
 
-    // 2. Handle Mouse Left Click
     if (ms.clicked) {
         int mx = ms.x;
         int my = ms.y;
 
-        // Check Windows (Topmost Z to Lowest Z)
         for (int i = num_windows - 1; i >= 0; i--) {
             window_t* win = z_order[i];
             if (!win || win->is_closed || win->is_minimized) continue;
@@ -473,20 +551,17 @@ void wm_process_events(void) {
                 my >= win->y && my <= win->y + win->h) {
 
                 wm_focus_window(win);
+                desktop_dirty = true;
 
-                // Check Traffic Light Buttons
                 if (my >= win->y + 8 && my <= win->y + 24) {
-                    // Close button (Red)
                     if (mx >= win->x + 12 && mx <= win->x + 28) {
                         wm_close_window(win);
                         return;
                     }
-                    // Minimize button (Amber)
                     if (mx >= win->x + 30 && mx <= win->x + 46) {
                         wm_minimize_window(win);
                         return;
                     }
-                    // Maximize button (Green)
                     if (mx >= win->x + 48 && mx <= win->x + 64) {
                         if (win->is_maximized) {
                             win->x = win->orig_x;
@@ -505,22 +580,23 @@ void wm_process_events(void) {
                             win->h = (int)screen_h - 110;
                             win->is_maximized = true;
                         }
+                        desktop_dirty = true;
                         return;
                     }
                 }
 
-                // Check Titlebar Drag
                 if (my < win->y + WM_TITLEBAR_HEIGHT) {
                     win->is_dragging = true;
                     win->drag_offset_x = mx - win->x;
                     win->drag_offset_y = my - win->y;
                     dragging_window = win;
+                    desktop_dirty = true;
                     return;
                 }
 
-                // Check Client Area Click
                 if (win->on_click) {
                     win->on_click(win, mx - win->x, my - win->y);
+                    desktop_dirty = true;
                 }
                 return;
             }

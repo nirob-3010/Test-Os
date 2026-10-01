@@ -11,6 +11,8 @@
 #include "gfx.h"
 #include "font.h"
 #include "pit.h"
+#include "rtc.h"
+#include "sysinfo.h"
 #include "printf.h"
 #include "string.h"
 
@@ -183,6 +185,13 @@ static void render_terminal_client(window_t* win, int cx, int cy, int cw, int ch
     font_draw_string(specs_x, sy, uptime_buf, 0xFF334155, 1); sy += 13;
     font_draw_string(specs_x, sy, "Shell     : bash", 0xFF334155, 1); sy += 13;
     font_draw_string(specs_x, sy, res_buf, 0xFF334155, 1); sy += 13;
+
+    sysinfo_metrics_t sys;
+    sysinfo_get_metrics(&sys);
+    char mem_buf[32];
+    snprintf(mem_buf, sizeof(mem_buf), "Memory    : %uMB / %uMB", sys.ram_used_mb, sys.ram_total_mb);
+    font_draw_string(specs_x, sy, mem_buf, 0xFF334155, 1); sy += 13;
+
     font_draw_string(specs_x, sy, "DE        : NSK Desktop", 0xFF334155, 1); sy += 13;
     font_draw_string(specs_x, sy, "WM        : Window Manager", 0xFF334155, 1); sy += 13;
     font_draw_string(specs_x, sy, "Theme     : Light", 0xFF334155, 1); sy += 13;
@@ -251,22 +260,24 @@ void phase3_desktop_init(void) {
     // 4. Initial Render Pass
     wm_render();
 
-    // 5. Interactive Event Loop (60 FPS)
+    // 5. Interactive Event Loop (Zero-Lag iOS-Style Cursor & Event Response)
     uint32_t last_tick = pit_get_ticks();
 
     while (1) {
         uint32_t cur_tick = pit_get_ticks();
+        mouse_state_t ms;
+        mouse_get_state(&ms);
 
-        if (cur_tick != last_tick) {
+        if (cur_tick != last_tick || ms.moved || ms.clicked || ms.released) {
             last_tick = cur_tick;
 
             // Process mouse events, window drag, buttons
             wm_process_events();
 
-            // Render updated desktop
+            // Render updated desktop / fast cursor blit
             wm_render();
+        } else {
+            __asm__ volatile ("hlt");
         }
-
-        __asm__ volatile ("hlt");
     }
 }

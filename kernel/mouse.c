@@ -102,6 +102,19 @@ static void mouse_interrupt_handler(registers_t* regs) {
         // Discard overflow packets
         if (flags & 0xC0) return;
 
+        // iOS-style dynamic velocity curve for fluid, responsive pointer motion
+        int speed = (dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy);
+        if (speed >= 16) {
+            dx = (dx * 5) / 2;
+            dy = (dy * 5) / 2;
+        } else if (speed >= 8) {
+            dx = (dx * 9) / 5;
+            dy = (dy * 9) / 5;
+        } else if (speed >= 3) {
+            dx = (dx * 4) / 3;
+            dy = (dy * 4) / 3;
+        }
+
         mouse_state.prev_x = mouse_state.x;
         mouse_state.prev_y = mouse_state.y;
         mouse_state.prev_buttons = mouse_state.buttons;

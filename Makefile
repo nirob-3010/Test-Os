@@ -37,7 +37,9 @@ C_SRCS := kernel/kernel.c \
           kernel/string.c \
           kernel/multiboot2.c \
           kernel/pmm.c \
-          kernel/kheap.c
+          kernel/kheap.c \
+          kernel/rtc.c \
+          kernel/sysinfo.c
 
 ASM_SRCS := boot/boot.asm \
             kernel/gdt_flush.asm \
